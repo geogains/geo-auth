@@ -36,9 +36,10 @@ export async function GET() {
       id: p.id,
       tiktok_open_id: p.tiktok_open_id,
       instagram_id: p.instagram_id,
-      display_name: p.display_name || p.username, // Fallback to username
+      username: p.username,
+      display_name: (p.display_name && p.display_name !== 'Unknown') ? p.display_name : (p.username || 'Unknown'),
       avatar_url: p.avatar_url,
-      platform: p.platform, // Use the actual platform column
+      platform: p.platform,
       joined_at: p.joined_at,
     }));
 

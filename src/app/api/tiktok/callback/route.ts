@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 type TikTokTokenResponse = {
   access_token?: string;
@@ -11,6 +11,44 @@ type TikTokTokenResponse = {
   error?: string;
   error_description?: string;
 };
+
+const AVATAR_BUCKET = "avatars";
+
+/**
+ * Downloads a TikTok avatar and uploads it to Supabase Storage.
+ * Returns the durable public storage URL on success, or the original
+ * TikTok CDN URL as a fallback if anything fails.
+ */
+async function mirrorAvatar(
+  supabase: SupabaseClient,
+  tiktokAvatarUrl: string,
+  openId: string
+): Promise<string> {
+  try {
+    const imageRes = await fetch(tiktokAvatarUrl);
+    if (!imageRes.ok) return tiktokAvatarUrl;
+
+    const contentType = imageRes.headers.get("content-type") || "image/jpeg";
+    const ext = contentType.includes("png") ? "png" : "jpg";
+    const storagePath = `tiktok/${openId}.${ext}`;
+
+    const buffer = await imageRes.arrayBuffer();
+
+    const { error: uploadError } = await supabase.storage
+      .from(AVATAR_BUCKET)
+      .upload(storagePath, buffer, {
+        contentType,
+        upsert: true,
+      });
+
+    if (uploadError) return tiktokAvatarUrl;
+
+    const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(storagePath);
+    return data.publicUrl || tiktokAvatarUrl;
+  } catch {
+    return tiktokAvatarUrl;
+  }
+}
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -74,10 +112,15 @@ export async function GET(req: NextRequest) {
 
   const user = userJson?.data?.user;
   const username = user?.display_name || "TikTok User";
-  const avatarUrl = user?.avatar_url || null;
+  const rawAvatarUrl: string | null = user?.avatar_url || null;
 
   // Save to Supabase (service role)
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+  // Mirror avatar to Supabase Storage for a durable URL
+  const avatarUrl = rawAvatarUrl
+    ? await mirrorAvatar(supabase, rawAvatarUrl, openId)
+    : null;
 
   // Upsert player
   await supabase.from("players").upsert(
