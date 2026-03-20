@@ -44,7 +44,7 @@ export async function GET() {
     }));
 
     return NextResponse.json(
-      { version: "oauth-users-v2", users },
+      { users },
       {
         headers: {
           'Access-Control-Allow-Origin': '*',
