@@ -38,7 +38,7 @@ export async function GET() {
       instagram_id: p.instagram_id,
       username: p.username,
       display_name: (p.display_name && p.display_name !== 'Unknown') ? p.display_name : (p.username || 'Unknown'),
-      avatar_url: p.avatar_url,
+      avatar_url: p.avatar_url?.replace('https://api.geo-ranks.com', 'https://ajwxgdaninuzcpfwawug.supabase.co') ?? null,
       platform: p.platform,
       joined_at: p.joined_at,
     }));

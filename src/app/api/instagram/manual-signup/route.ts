@@ -6,38 +6,74 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const username = formData.get('username') as string;
+    const rawUsername = formData.get('username') as string;
+    const rawEmail = formData.get('email') as string;
     const imageFile = formData.get('image') as File;
 
-    if (!username || !imageFile) {
+    if (!rawUsername || !rawEmail || !imageFile) {
       return NextResponse.json(
-        { error: 'Username and image are required' },
-        { 
-          status: 400,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-          }
-        }
+        { error: 'Username, email, and image are required' },
+        { status: 400, headers: CORS_HEADERS }
       );
     }
 
-    // Validate username
+    const username = rawUsername.trim();
+    const email = rawEmail.trim().toLowerCase();
+
     if (username.length < 2 || username.length > 30) {
       return NextResponse.json(
         { error: 'Username must be between 2 and 30 characters' },
-        { 
-          status: 400,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-          }
-        }
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
+    if (!isValidEmail(email)) {
+      return NextResponse.json(
+        { error: 'Please enter a valid email address' },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
+    // Duplicate username check — scoped to Instagram/manual only
+    const { data: existingByUsername } = await supabase
+      .from('players')
+      .select('id')
+      .eq('platform', 'instagram')
+      .eq('username', username)
+      .maybeSingle();
+
+    if (existingByUsername) {
+      return NextResponse.json(
+        { error: 'That Instagram username is already registered.' },
+        { status: 409, headers: CORS_HEADERS }
+      );
+    }
+
+    // Duplicate email check — scoped to Instagram/manual only
+    const { data: existingByEmail } = await supabase
+      .from('players')
+      .select('id')
+      .eq('platform', 'instagram')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (existingByEmail) {
+      return NextResponse.json(
+        { error: 'That email address is already registered.' },
+        { status: 409, headers: CORS_HEADERS }
       );
     }
 
@@ -46,18 +82,18 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(arrayBuffer);
     const base64Image = `data:${imageFile.type};base64,${buffer.toString('base64')}`;
 
-    // Generate unique ID for Instagram
-    const manualInstagramId = `manual_${username.toLowerCase()}_${Date.now()}`;
+    // Stable ID — no Date.now(), prevents duplicate rows on re-submission
+    const manualInstagramId = `manual_${username.toLowerCase()}`;
 
-    // Save to Supabase with ALL required fields
     const { data, error: dbError } = await supabase
       .from('players')
       .insert({
         instagram_id: manualInstagramId,
-        platform: 'instagram',           // Required
-        platform_user_id: manualInstagramId, // Required
-        username: username,               // Required
-        display_name: username,           // Required
+        platform: 'instagram',
+        platform_user_id: manualInstagramId,
+        username,
+        display_name: username,
+        email,
         avatar_url: base64Image,
         is_active: true,
         verified: true,
@@ -68,61 +104,58 @@ export async function POST(request: NextRequest) {
 
     if (dbError) {
       console.error('Database error:', dbError);
+
+      // Unique constraint violation — map to a user-facing message
+      if (dbError.code === '23505') {
+        const details = dbError.details || '';
+        if (details.includes('(email)')) {
+          return NextResponse.json(
+            { error: 'That email address is already registered.' },
+            { status: 409, headers: CORS_HEADERS }
+          );
+        }
+        if (details.includes('(username)') || details.includes('(platform_user_id)')) {
+          return NextResponse.json(
+            { error: 'That Instagram username is already registered.' },
+            { status: 409, headers: CORS_HEADERS }
+          );
+        }
+        return NextResponse.json(
+          { error: 'That username or email is already registered.' },
+          { status: 409, headers: CORS_HEADERS }
+        );
+      }
+
       return NextResponse.json(
         { error: 'Failed to save user data' },
-        { 
-          status: 500,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-          }
-        }
+        { status: 500, headers: CORS_HEADERS }
       );
     }
 
     return NextResponse.json(
-      { 
+      {
         success: true,
         message: 'Successfully signed up!',
         user: {
           username: data.username,
-          id: data.id
-        }
+          id: data.id,
+        },
       },
-      {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
-      }
+      { headers: CORS_HEADERS }
     );
 
   } catch (err) {
     console.error('Manual signup error:', err);
     return NextResponse.json(
       { error: 'An error occurred during signup' },
-      { 
-        status: 500,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
-      }
+      { status: 500, headers: CORS_HEADERS }
     );
   }
 }
 
-// Handle CORS preflight
 export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
+    headers: CORS_HEADERS,
   });
 }

@@ -172,7 +172,7 @@ export async function GET(request: Request) {
       id: player.id,
       username: player.username,
       display_name: player.display_name || player.username,
-      avatar_url: player.avatar_url || '/assets/default-avatar.png',
+      avatar_url: (player.avatar_url || '/assets/default-avatar.png').replace('https://api.geo-ranks.com', 'https://ajwxgdaninuzcpfwawug.supabase.co'),
       platform: player.platform || 'unknown',
       total_points: player.total_points || 0,
       total_wins: player.total_wins || 0,

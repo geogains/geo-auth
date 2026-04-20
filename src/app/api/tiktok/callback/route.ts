@@ -44,7 +44,15 @@ async function mirrorAvatar(
     if (uploadError) return tiktokAvatarUrl;
 
     const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(storagePath);
-    return data.publicUrl || tiktokAvatarUrl;
+    const publicUrl = data.publicUrl;
+
+    // Guard: ensure we never store a URL from a custom domain (e.g. misconfigured SUPABASE_URL)
+    if (!publicUrl.includes('.supabase.co/')) {
+      console.error(`[mirrorAvatar] Storage URL has unexpected domain: ${publicUrl} — check SUPABASE_URL env var`);
+      return tiktokAvatarUrl;
+    }
+
+    return publicUrl;
   } catch {
     return tiktokAvatarUrl;
   }
